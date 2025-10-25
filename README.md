@@ -111,6 +111,3 @@ src/main/java/com/example/app/
 ├── app.js        (Toda la lógica JavaScript)
 └── style.css     (Todos los estilos)
 ```
-
-
-# DS-lab05
