@@ -1,0 +1,15 @@
+meta {
+  name: GET
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:8081/api/empleados
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,438 +1,460 @@
-// ============================================
-// SISTEMA DE GESTIÓN DE PRODUCTOS
-// Lógica Frontend con Axios
-// ============================================
+// ==================================================
+// CONFIGURACIÓN DE LA API
+// ==================================================
+// IMPORTANTE: Verifica que este puerto (8081) y la ruta base (/api) sean correctos para tu backend Java.
+// Asegúrate de que tu backend esté ejecutándose en esta dirección.
+const BASE_URL = 'http://localhost:8081/api'; 
+const EMPLEADOS_API_URL = `${BASE_URL}/empleados`;
+const DEPARTAMENTOS_API_URL = `${BASE_URL}/departamentos`;
+// Asume que el controlador base para autenticación es /api/usuarios
+const USUARIOS_API_URL = `${BASE_URL}/usuarios`; 
 
-// ===== CONFIGURACIÓN =====
-const API_URL = 'http://localhost:8080/api/productos';
+// ==================================================
+// VARIABLES GLOBALES
+// ==================================================
+let empleadosData = []; // Cache para los datos de empleados
+let departamentosData = []; // Cache para los datos de departamentos
+let usuarioActual = null; // Almacena la información del usuario logueado
+let empleadoIdToDelete = null; // ID del empleado a eliminar en el modal de confirmación
 
-// Variable global para almacenar el ID del producto a eliminar
-let productoAEliminar = null;
+// Elementos del DOM
+const empleadosTableBody = document.getElementById('empleadosTable');
+const departamentoSelect = document.getElementById('departamentoId');
+const empleadoForm = document.getElementById('empleadoForm');
+const modalTitle = document.getElementById('modalTitle');
+const empleadoModal = document.getElementById('empleadoModal');
+const confirmModal = document.getElementById('confirmModal');
+const searchInput = document.getElementById('searchInput');
+const btnConfirmarEliminar = document.getElementById('btnConfirmarEliminar');
 
-// Configuración de Axios
-axios.defaults.headers.common['Content-Type'] = 'application/json';
+// ==================================================
+// FUNCIONES DE UTILIDAD (VISTAS Y ALERTAS)
+// ==================================================
 
-// Interceptor para manejar errores globales
-axios.interceptors.response.use(
-    response => response,
-    error => {
-        console.error('Error en la petición:', error);
-        mostrarError('Error de conexión con el servidor. Verifica que el backend esté ejecutándose en http://localhost:8080');
-        return Promise.reject(error);
-    }
-);
-
-// ===== INICIALIZACIÓN =====
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 Aplicación iniciada');
-    cargarProductos();
-    configurarFormulario();
-    configurarBuscador();
-});
-
-// Configurar el formulario
-function configurarFormulario() {
-    const form = document.getElementById('producto-form');
-    form.addEventListener('submit', guardarProducto);
+/**
+ * Muestra una vista y oculta las demás.
+ * @param {string} viewId - El ID de la vista a mostrar ('loginView' o 'empleadosView').
+ */
+function showView(viewId) {
+    document.querySelectorAll('.view').forEach(view => {
+        view.classList.remove('active');
+    });
+    document.getElementById(viewId).classList.add('active');
 }
 
-// Configurar el buscador
-function configurarBuscador() {
-    const searchInput = document.getElementById('search-input');
-    searchInput.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter') {
-            buscarProductos();
+/**
+ * Muestra una alerta en el contenedor especificado.
+ * @param {string} containerId - El ID del contenedor de alerta (ej: 'loginAlert', 'alertContainer').
+ * @param {string} message - El mensaje a mostrar.
+ * @param {string} type - El tipo de alerta ('success', 'error', 'warning', 'info').
+ */
+function showAlert(containerId, message, type) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Limpia y crea el contenido de la alerta
+    container.innerHTML = message;
+    
+    // Remueve todas las clases de alerta y añade la nueva
+    container.className = 'alert';
+    container.classList.add(`alert-${type}`, 'show');
+    
+    container.style.display = 'block';
+
+    // Ocultar automáticamente después de 5 segundos, excepto la alerta de login
+    if (containerId !== 'loginAlert') {
+        setTimeout(() => {
+            container.classList.remove('show');
+            // Ocultar completamente después de la transición
+            setTimeout(() => {
+                container.style.display = 'none';
+                container.innerHTML = '';
+            }, 500); 
+        }, 5000);
+    }
+}
+
+// ==================================================
+// MANEJO DE MODALES
+// ==================================================
+
+/**
+ * Muestra el modal de creación/edición de empleados.
+ * @param {string} mode - 'create' o 'edit'.
+ * @param {number} [id=null] - ID del empleado si es modo 'edit'.
+ */
+function showModal(mode, id = null) {
+    // Resetear el formulario y limpiar el ID oculto
+    empleadoForm.reset();
+    document.getElementById('empleadoId').value = ''; 
+    document.getElementById('btnGuardar').textContent = 'Guardar';
+    
+    if (mode === 'create') {
+        modalTitle.textContent = '➕ Nuevo Empleado';
+    } else {
+        modalTitle.textContent = '✏️ Editar Empleado';
+        document.getElementById('btnGuardar').textContent = 'Actualizar';
+        cargarEmpleadoParaEdicion(id);
+    }
+    empleadoModal.classList.add('show');
+}
+
+function closeModal() {
+    empleadoModal.classList.remove('show');
+}
+
+function showConfirmModal(id) {
+    empleadoIdToDelete = id;
+    confirmModal.classList.add('show');
+    // Asegura que el handler de confirmación esté asociado al botón correcto
+    btnConfirmarEliminar.onclick = confirmarEliminar; 
+}
+
+function closeConfirmModal() {
+    confirmModal.classList.remove('show');
+    empleadoIdToDelete = null;
+}
+
+// ==================================================
+// CARGA DE DATOS Y RENDERIZADO
+// ==================================================
+
+/**
+ * Carga los departamentos y rellena el <select>.
+ */
+async function cargarDepartamentos() {
+    try {
+        // Usamos la librería 'axios' (asumida en el index.html) para hacer la petición
+        const response = await axios.get(DEPARTAMENTOS_API_URL);
+        departamentosData = response.data;
+        departamentoSelect.innerHTML = '<option value="">Seleccionar...</option>';
+        departamentosData.forEach(dep => {
+            const option = document.createElement('option');
+            option.value = dep.id;
+            option.textContent = dep.nombre;
+            departamentoSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error al cargar departamentos:', error);
+        // Si falla, al menos la aplicación sigue funcionando
+    }
+}
+
+/**
+ * Carga todos los empleados desde la API.
+ */
+async function cargarEmpleados() {
+    // Muestra el estado de carga
+    empleadosTableBody.innerHTML = '<tr><td colspan="9" class="loading">Cargando empleados...</td></tr>';
+    
+    try {
+        const response = await axios.get(EMPLEADOS_API_URL);
+        empleadosData = response.data;
+        renderEmpleados(empleadosData);
+    } catch (error) {
+        console.error('Error al cargar empleados:', error);
+        empleadosTableBody.innerHTML = '<tr><td colspan="9" class="loading">❌ Error al cargar datos. Verifique la conexión con el backend o la sesión.</td></tr>';
+        showAlert('alertContainer', '❌ Error al cargar los empleados. Es posible que la API no responda o haya un problema de CORS.', 'error');
+    }
+}
+
+/**
+ * Renderiza los empleados en la tabla.
+ * @param {Array<Object>} data - Lista de empleados a renderizar.
+ */
+function renderEmpleados(data) {
+    empleadosTableBody.innerHTML = ''; // Limpiar contenido anterior
+
+    if (data.length === 0) {
+        empleadosTableBody.innerHTML = '<tr><td colspan="9" class="empty-state">No se encontraron empleados.</td></tr>';
+        return;
+    }
+
+    data.forEach(empleado => {
+        // Encontrar el nombre del departamento
+        const dep = departamentosData.find(d => d.id === empleado.departamentoId);
+        const departamentoNombre = dep ? dep.nombre : empleado.departamentoNombre || 'N/A';
+        
+        // Formato de fecha (ajustar si la fecha de Java viene con timestamp)
+        let fechaContratacionFormatted = 'N/A';
+        if (empleado.fechaContratacion) {
+            try {
+                // Si viene como 'YYYY-MM-DD' o un objeto Date válido
+                const date = new Date(empleado.fechaContratacion);
+                if (!isNaN(date)) {
+                    // Usar toLocaleDateString para formato DD/MM/YYYY
+                    fechaContratacionFormatted = date.toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                }
+            } catch (e) {
+                console.warn("Fecha inválida:", empleado.fechaContratacion);
+            }
         }
+        
+        // Salario formateado (manejo de null/undefined)
+        const salarioFormatted = empleado.salario !== null && empleado.salario !== undefined
+            ? `$${parseFloat(empleado.salario).toFixed(2)}`
+            : 'N/A';
+
+        const row = empleadosTableBody.insertRow();
+        row.innerHTML = `
+            <td>${empleado.id || 'N/A'}</td>
+            <td>${empleado.nombre || ''} ${empleado.apellido || ''}</td>
+            <td>${empleado.email || 'N/A'}</td>
+            <td>${empleado.telefono || 'N/A'}</td>
+            <td>${empleado.cargo || 'N/A'}</td>
+            <td>${departamentoNombre}</td>
+            <td>${salarioFormatted}</td>
+            <td>${fechaContratacionFormatted}</td>
+            <td class="actions">
+                <button class="btn btn-warning btn-sm" onclick="showModal('edit', ${empleado.id})">Editar</button>
+                <button class="btn btn-danger btn-sm" onclick="showConfirmModal(${empleado.id})">Eliminar</button>
+            </td>
+        `;
     });
 }
 
-// ===== FUNCIONES DE CARGA =====
-
 /**
- * Cargar todos los productos desde el backend
+ * Rellena el formulario con los datos del empleado para edición.
+ * @param {number} id - ID del empleado.
  */
-async function cargarProductos() {
-    console.log('📥 Cargando productos...');
-    mostrarLoading(true);
-    ocultarError();
-    
-    try {
-        const response = await axios.get(API_URL);
-        console.log('✅ Productos cargados:', response.data);
-        mostrarProductos(response.data);
-    } catch (error) {
-        console.error('❌ Error al cargar productos:', error);
-        mostrarError('No se pudieron cargar los productos. Verifica que el backend esté ejecutándose.');
-    } finally {
-        mostrarLoading(false);
-    }
-}
-
-// ===== FUNCIONES DE VISUALIZACIÓN =====
-
-/**
- * Mostrar la lista de productos en el DOM
- * @param {Array} productos - Array de productos a mostrar
- */
-function mostrarProductos(productos) {
-    const container = document.getElementById('productos-container');
-    
-    // Si no hay productos, mostrar mensaje
-    if (productos.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">📦</div>
-                <h3>No hay productos registrados</h3>
-                <p>Agrega tu primer producto usando el formulario de arriba</p>
-            </div>
-        `;
+function cargarEmpleadoParaEdicion(id) {
+    const empleado = empleadosData.find(e => e.id === id);
+    if (!empleado) {
+        showAlert('alertContainer', '❌ Empleado no encontrado para edición.', 'error');
+        closeModal();
         return;
     }
-    
-    // Generar HTML para cada producto
-    const productosHTML = productos.map(producto => `
-        <div class="producto-card">
-            <div class="producto-header">
-                <div>
-                    <div class="producto-nombre">${escapeHtml(producto.nombre)}</div>
-                </div>
-                <span class="producto-id">ID: ${producto.id}</span>
-            </div>
-            
-            <div class="producto-descripcion">
-                ${escapeHtml(producto.descripcion) || 'Sin descripción'}
-            </div>
-            
-            <div class="producto-details">
-                <div class="detail-item">
-                    <div class="detail-label">Cantidad</div>
-                    <div class="detail-value">${producto.cantidad}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Precio</div>
-                    <div class="detail-value">$${parseFloat(producto.precio).toFixed(2)}</div>
-                </div>
-            </div>
-            
-            <div class="producto-actions">
-                <button class="btn btn-warning" onclick="editarProducto(${producto.id})">
-                    ✏️ Editar
-                </button>
-                <button class="btn btn-danger" onclick="abrirModalEliminar(${producto.id})">
-                    🗑️ Eliminar
-                </button>
-            </div>
-        </div>
-    `).join('');
-    
-    container.innerHTML = `<div class="productos-grid">${productosHTML}</div>`;
-}
 
-// ===== FUNCIONES CRUD =====
-
-/**
- * Guardar producto (Crear o Actualizar)
- * @param {Event} event - Evento del formulario
- */
-async function guardarProducto(event) {
-    event.preventDefault();
+    document.getElementById('empleadoId').value = empleado.id;
+    document.getElementById('nombre').value = empleado.nombre || '';
+    document.getElementById('apellido').value = empleado.apellido || '';
+    document.getElementById('email').value = empleado.email || '';
+    document.getElementById('telefono').value = empleado.telefono || '';
+    document.getElementById('cargo').value = empleado.cargo || '';
     
-    const id = document.getElementById('producto-id').value;
-    const producto = {
-        nombre: document.getElementById('nombre').value.trim(),
-        descripcion: document.getElementById('descripcion').value.trim() || null,
-        cantidad: parseInt(document.getElementById('cantidad').value),
-        precio: parseFloat(document.getElementById('precio').value)
-    };
+    // Salario: Asegurar que se muestre el valor numérico
+    document.getElementById('salario').value = empleado.salario || 0;
     
-    // Validaciones básicas
-    if (!producto.nombre || producto.nombre.length < 3) {
-        mostrarError('El nombre debe tener al menos 3 caracteres');
-        return;
-    }
-    
-    if (producto.cantidad < 0) {
-        mostrarError('La cantidad no puede ser negativa');
-        return;
-    }
-    
-    if (producto.precio <= 0) {
-        mostrarError('El precio debe ser mayor que 0');
-        return;
-    }
-    
-    console.log('💾 Guardando producto:', producto);
-    
-    try {
-        if (id) {
-            // Actualizar producto existente
-            await axios.put(`${API_URL}/${id}`, producto);
-            console.log('✅ Producto actualizado');
-            mostrarMensajeExito('✅ Producto actualizado correctamente');
-        } else {
-            // Crear nuevo producto
-            await axios.post(API_URL, producto);
-            console.log('✅ Producto creado');
-            mostrarMensajeExito('✅ Producto creado correctamente');
-        }
-        
-        limpiarFormulario();
-        cargarProductos();
-    } catch (error) {
-        console.error('❌ Error al guardar producto:', error);
-        
-        if (error.response && error.response.data) {
-            // Mostrar errores de validación del backend
-            const errores = error.response.data;
-            if (typeof errores === 'object') {
-                const mensajesError = Object.entries(errores)
-                    .map(([campo, mensaje]) => `${campo}: ${mensaje}`)
-                    .join('\n');
-                mostrarError(mensajesError);
-            } else {
-                mostrarError(errores);
+    // Formatear la fecha (si viene con HORA, solo necesitamos la parte DATE para el input type="date")
+    if (empleado.fechaContratacion) {
+        try {
+            const date = new Date(empleado.fechaContratacion);
+            if (!isNaN(date)) {
+                // Obtener YYYY-MM-DD
+                const dateString = date.toISOString().split('T')[0];
+                document.getElementById('fechaContratacion').value = dateString;
             }
-        } else {
-            mostrarError('Error al guardar el producto. Verifica los datos e intenta nuevamente.');
+        } catch (e) {
+            document.getElementById('fechaContratacion').value = '';
         }
+    } else {
+        document.getElementById('fechaContratacion').value = '';
     }
-}
-
-/**
- * Editar un producto existente
- * @param {number} id - ID del producto a editar
- */
-async function editarProducto(id) {
-    console.log('✏️ Editando producto:', id);
     
-    try {
-        const response = await axios.get(`${API_URL}/${id}`);
-        const producto = response.data;
-        
-        // Llenar el formulario con los datos del producto
-        document.getElementById('producto-id').value = producto.id;
-        document.getElementById('nombre').value = producto.nombre;
-        document.getElementById('descripcion').value = producto.descripcion || '';
-        document.getElementById('cantidad').value = producto.cantidad;
-        document.getElementById('precio').value = producto.precio;
-        
-        // Cambiar el título y texto del botón
-        document.getElementById('form-title').textContent = '✏️ Editar Producto';
-        document.getElementById('btn-text').textContent = '💾 Actualizar Producto';
-        document.getElementById('btn-cancel').style.display = 'block';
-        
-        // Scroll al formulario
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        
-        console.log('✅ Producto cargado en el formulario');
-    } catch (error) {
-        console.error('❌ Error al cargar producto:', error);
-        mostrarError('No se pudo cargar el producto para editar');
-    }
+    // Seleccionar el departamento
+    document.getElementById('departamentoId').value = empleado.departamentoId || '';
 }
 
-/**
- * Abrir modal de confirmación para eliminar
- * @param {number} id - ID del producto a eliminar
- */
-function abrirModalEliminar(id) {
-    console.log('🗑️ Abriendo modal para eliminar producto:', id);
-    productoAEliminar = id;
-    const modal = document.getElementById('modal-confirmacion');
-    modal.style.display = 'flex';
-}
+// ==================================================
+// CRUD (CREAR, EDITAR, ELIMINAR)
+// ==================================================
 
-/**
- * Cerrar modal de confirmación
- */
-function cerrarModal() {
-    console.log('❌ Cerrando modal');
-    const modal = document.getElementById('modal-confirmacion');
-    modal.style.display = 'none';
-    productoAEliminar = null;
-}
+empleadoForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-/**
- * Confirmar eliminación del producto
- */
-async function confirmarEliminar() {
-    if (!productoAEliminar) return;
+    const id = document.getElementById('empleadoId').value;
+    const isEditing = id !== '';
+    const btnSubmit = document.getElementById('btnGuardar');
     
-    console.log('🗑️ Eliminando producto:', productoAEliminar);
-    
-    try {
-        await axios.delete(`${API_URL}/${productoAEliminar}`);
-        console.log('✅ Producto eliminado');
-        mostrarMensajeExito('🗑️ Producto eliminado correctamente');
-        cerrarModal();
-        cargarProductos();
-    } catch (error) {
-        console.error('❌ Error al eliminar producto:', error);
-        mostrarError('No se pudo eliminar el producto');
-        cerrarModal();
-    }
-}
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = isEditing ? 'Actualizando...' : 'Guardando...';
 
-// ===== FUNCIONES DE BÚSQUEDA =====
+    // Obtener y validar datos del formulario
+    const empleado = {
+        nombre: document.getElementById('nombre').value.trim(),
+        apellido: document.getElementById('apellido').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        telefono: document.getElementById('telefono').value.trim() || null,
+        cargo: document.getElementById('cargo').value.trim() || null,
+        // Convertimos a número. Si está vacío, usamos null.
+        departamentoId: Number(document.getElementById('departamentoId').value) || null,
+        // Usamos parseFloat y aseguramos que no sea NaN
+        salario: parseFloat(document.getElementById('salario').value) || 0,
+        fechaContratacion: document.getElementById('fechaContratacion').value,
+    };
 
-/**
- * Buscar productos por nombre
- */
-async function buscarProductos() {
-    const searchTerm = document.getElementById('search-input').value.trim();
-    
-    if (!searchTerm) {
-        cargarProductos();
+    // Validación básica
+    if (!empleado.nombre || !empleado.apellido || !empleado.email || !empleado.salario || !empleado.fechaContratacion) {
+        showAlert('alertContainer', '❌ Por favor, rellena todos los campos obligatorios (Nombre, Apellido, Email, Salario, Fecha).', 'error');
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = isEditing ? 'Actualizar' : 'Guardar';
         return;
     }
     
-    console.log('🔍 Buscando productos:', searchTerm);
-    mostrarLoading(true);
-    ocultarError();
-    
     try {
-        const response = await axios.get(`${API_URL}/buscar`, {
-            params: { nombre: searchTerm }
-        });
-        
-        console.log('✅ Productos encontrados:', response.data.length);
-        mostrarProductos(response.data);
-        
-        if (response.data.length === 0) {
-            mostrarError(`No se encontraron productos con el término: "${searchTerm}"`);
+        if (isEditing) {
+            // EDITAR (PUT)
+            empleado.id = parseInt(id);
+            await axios.put(`${EMPLEADOS_API_URL}/${id}`, empleado);
+            showAlert('alertContainer', `✅ Empleado ${id} actualizado con éxito.`, 'success');
+        } else {
+            // CREAR (POST)
+            await axios.post(EMPLEADOS_API_URL, empleado);
+            showAlert('alertContainer', '✅ Empleado creado con éxito.', 'success');
         }
+        
+        closeModal();
+        await cargarEmpleados(); // Recargar datos de la tabla
+
     } catch (error) {
-        console.error('❌ Error al buscar productos:', error);
-        mostrarError('Error al realizar la búsqueda');
+        console.error(`Error al ${isEditing ? 'actualizar' : 'crear'} empleado:`, error);
+        
+        // Intenta extraer un mensaje de error del cuerpo de la respuesta, si está disponible
+        const errorMessage = error.response?.data?.message || `Error en la comunicación con la API. Revise la consola.`;
+        
+        showAlert('alertContainer', `❌ Error: ${errorMessage}`, 'error');
     } finally {
-        mostrarLoading(false);
-    }
-}
-
-// ===== FUNCIONES AUXILIARES =====
-
-/**
- * Cancelar edición y limpiar formulario
- */
-function cancelarEdicion() {
-    console.log('❌ Cancelando edición');
-    limpiarFormulario();
-}
-
-/**
- * Limpiar el formulario
- */
-function limpiarFormulario() {
-    document.getElementById('producto-form').reset();
-    document.getElementById('producto-id').value = '';
-    document.getElementById('form-title').textContent = '➕ Agregar Nuevo Producto';
-    document.getElementById('btn-text').textContent = '💾 Guardar Producto';
-    document.getElementById('btn-cancel').style.display = 'none';
-}
-
-/**
- * Mostrar u ocultar el indicador de carga
- * @param {boolean} mostrar - true para mostrar, false para ocultar
- */
-function mostrarLoading(mostrar) {
-    const loading = document.getElementById('loading');
-    loading.style.display = mostrar ? 'block' : 'none';
-}
-
-/**
- * Mostrar mensaje de error
- * @param {string} mensaje - Mensaje de error a mostrar
- */
-function mostrarError(mensaje) {
-    const errorDiv = document.getElementById('error-message');
-    errorDiv.textContent = mensaje;
-    errorDiv.style.display = 'block';
-    
-    // Ocultar automáticamente después de 5 segundos
-    setTimeout(() => {
-        errorDiv.style.display = 'none';
-    }, 5000);
-}
-
-/**
- * Ocultar mensaje de error
- */
-function ocultarError() {
-    const errorDiv = document.getElementById('error-message');
-    errorDiv.style.display = 'none';
-}
-
-/**
- * Mostrar mensaje de éxito
- * @param {string} mensaje - Mensaje de éxito a mostrar
- */
-function mostrarMensajeExito(mensaje) {
-    const container = document.querySelector('.container');
-    const successDiv = document.createElement('div');
-    successDiv.className = 'success-message';
-    successDiv.textContent = mensaje;
-    
-    // Insertar al inicio del container
-    container.insertBefore(successDiv, container.children[1]);
-    
-    // Remover automáticamente después de 3 segundos
-    setTimeout(() => {
-        successDiv.remove();
-    }, 3000);
-}
-
-/**
- * Escapar HTML para prevenir XSS
- * @param {string} text - Texto a escapar
- * @returns {string} - Texto escapado
- */
-function escapeHtml(text) {
-    if (!text) return '';
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
-}
-
-// ===== MANEJADORES DE EVENTOS GLOBALES =====
-
-// Cerrar modal al hacer clic fuera de él
-document.addEventListener('click', (event) => {
-    const modal = document.getElementById('modal-confirmacion');
-    if (event.target === modal) {
-        cerrarModal();
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = isEditing ? 'Actualizar' : 'Guardar';
     }
 });
 
-// Cerrar modal con la tecla ESC
-document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-        cerrarModal();
+async function confirmarEliminar() {
+    const id = empleadoIdToDelete;
+    closeConfirmModal();
+
+    if (id === null) return;
+
+    try {
+        // ELIMINAR (DELETE)
+        await axios.delete(`${EMPLEADOS_API_URL}/${id}`);
+        showAlert('alertContainer', `✅ Empleado ${id} eliminado con éxito.`, 'success');
+        await cargarEmpleados(); // Recargar datos de la tabla
+    } catch (error) {
+        console.error('Error al eliminar empleado:', error);
+        const errorMessage = error.response?.data?.message || `Error al eliminar el empleado ${id}.`;
+        showAlert('alertContainer', `❌ Error: ${errorMessage}`, 'error');
+    }
+}
+
+// ==================================================
+// BÚSQUEDA
+// ==================================================
+
+searchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    
+    if (searchTerm.length === 0) {
+        renderEmpleados(empleadosData); // Muestra todos si la búsqueda está vacía
+        return;
+    }
+    
+    // Filtrar los datos en el cache local
+    const filteredData = empleadosData.filter(empleado => {
+        // Concatenar campos relevantes para una búsqueda amplia
+        const searchableText = [
+            empleado.nombre, 
+            empleado.apellido, 
+            empleado.email, 
+            empleado.cargo,
+            // Incluir el nombre del departamento si está disponible en el cache
+            departamentosData.find(d => d.id === empleado.departamentoId)?.nombre
+        ].map(item => String(item || '').toLowerCase()).join(' ');
+
+        return searchableText.includes(searchTerm);
+    });
+    
+    renderEmpleados(filteredData);
+});
+
+// ==================================================
+// AUTENTICACIÓN Y LOGIN (CRÍTICO)
+// ==================================================
+
+/**
+ * Maneja el cierre de sesión.
+ */
+function logout() {
+    usuarioActual = null;
+    empleadosData = []; // Limpiar caché de datos
+    departamentosData = [];
+    document.getElementById('empleadosTable').innerHTML = ''; // Limpiar tabla
+    showView('loginView');
+    document.getElementById('loginForm').reset();
+    document.getElementById('userName').textContent = 'Usuario';
+    showAlert('loginAlert', '👋 Sesión cerrada exitosamente.', 'info');
+    // Asegurar que la alerta del main content se oculte
+    document.getElementById('alertContainer').style.display = 'none';
+}
+
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const login = document.getElementById('loginUsuario').value.trim();
+    const clave = document.getElementById('loginClave').value;
+
+    const btnSubmit = e.target.querySelector('button[type="submit"]');
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = 'Iniciando sesión...';
+    
+    // Limpiar alerta previa
+    document.getElementById('loginAlert').style.display = 'none';
+
+    try {
+        // Endpoint de login (ejemplo: POST /api/usuarios/auth/login)
+        const response = await axios.post(`${USUARIOS_API_URL}/auth/login`, {
+            login: login,
+            clave: clave
+        });
+
+        // El backend debe devolver un objeto con los datos del usuario en caso de éxito
+        // Asumiendo que el backend devuelve un 200/201 con los datos del usuario si es exitoso
+        if (response.data && response.status < 400) {
+            // LOGIN EXITOSO
+            usuarioActual = response.data; // Asume que 'response.data' es el objeto usuario
+            document.getElementById('userName').textContent = usuarioActual.nombre || 'Administrador';
+            
+            showAlert('loginAlert', '✅ ¡Login exitoso! Redirigiendo...', 'success');
+            
+            // Redirigir y cargar datos después de un breve delay
+            setTimeout(() => {
+                showView('empleadosView');
+                cargarDepartamentos(); 
+                cargarEmpleados();      // <--- INICIA LA CARGA DE LA TABLA
+            }, 1000);
+        } else {
+             // Esto se maneja mejor en el catch, pero por si acaso.
+             throw new Error("Respuesta de API inesperada.");
+        }
+
+    } catch (error) {
+        console.error('Error en login:', error);
+        
+        let errorMessage = '❌ Error desconocido.';
+        
+        if (error.response) {
+            // Error de respuesta (4xx, 5xx)
+            if (error.response.status === 401 || error.response.status === 403) {
+                errorMessage = '❌ Credenciales inválidas. Verifica tu usuario y contraseña.';
+            } else if (error.response.data && error.response.data.message) {
+                errorMessage = `❌ Error del servidor: ${error.response.data.message}`;
+            } else {
+                errorMessage = `❌ Error ${error.response.status}: El servidor respondió con un error.`;
+            }
+        } else if (error.request) {
+            // El servidor no respondió (API está caído o URL incorrecta)
+            errorMessage = '❌ No se pudo conectar con el servidor. Verifica que el backend esté ejecutándose en la URL configurada.';
+        }
+        
+        showAlert('loginAlert', errorMessage, 'error');
+        
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Iniciar Sesión';
     }
 });
 
-// ===== UTILIDADES DE CONSOLA =====
-
-/**
- * Mostrar estadísticas en consola
- */
-function mostrarEstadisticas() {
-    console.log(`
-    ╔═══════════════════════════════════════╗
-    ║   SISTEMA DE GESTIÓN DE PRODUCTOS    ║
-    ╠═══════════════════════════════════════╣
-    ║ API URL: ${API_URL}                   
-    ║ Estado: Conectado ✅                  
-    ╚═══════════════════════════════════════╝
-    `);
+// Inicializar la aplicación al cargar la página
+window.onload = function() {
+    showView('loginView');
 }
-
-// Mostrar estadísticas al cargar
-setTimeout(mostrarEstadisticas, 1000);
-
-// ===== FIN DEL SCRIPT =====
-console.log('✅ Script cargado correctamente');

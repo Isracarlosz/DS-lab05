@@ -1,0 +1,16 @@
+meta {
+  name: DELETE
+  type: http
+  seq: 4
+}
+
+delete {
+  url: http://localhost:8081/api/empleados/6
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

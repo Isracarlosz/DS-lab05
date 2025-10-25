@@ -1,0 +1,31 @@
+meta {
+  name: POST
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:8081/api/empleados
+  body: json
+  auth: inherit
+}
+
+body:json {
+    {
+      "id": 1,
+      "nombre": "Ana",
+      "apellido": "Pérez",
+      "email": "ana.perez@empresa.com",
+      "telefono": "999111222",
+      "fechaContratacion": "2021-03-10",
+      "salario": 3500,
+      "cargo": "Analista RRHH",
+      "departamentoId": 1,
+      "departamentoNombre": "Recursos Humanos"
+    }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

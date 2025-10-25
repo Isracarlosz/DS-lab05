@@ -3,84 +3,199 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Productos</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Sistema de Gestión de Empleados</title>
+    <!-- Incluimos Axios para las llamadas a la API -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- Incluimos el CSS para el estilo -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Iconos de Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🛒 Sistema de Gestión de Productos</h1>
-            <p class="subtitle">CRUD con Spring Boot y Axios</p>
-        </header>
 
-        <!-- Formulario para Crear/Editar Producto -->
-        <div class="card">
-            <h2 id="form-title">➕ Agregar Nuevo Producto</h2>
-            <form id="producto-form">
-                <input type="hidden" id="producto-id">
+    <!-- 
+        ==================================================
+        VISTA DE LOGIN (view: loginView)
+        ==================================================
+    -->
+    <div id="loginView" class="view active">
+        <div class="login-container">
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-lock icon-orange"></i>
+                    <h2>Sistema de Empleados</h2>
+                    <p>Ingresa tus credenciales para continuar</p>
+                </div>
                 
-                <div class="form-group">
-                    <label for="nombre">Nombre del Producto *</label>
-                    <input type="text" id="nombre" placeholder="Ej: Laptop HP" required minlength="3" maxlength="100">
-                </div>
+                <!-- Contenedor de Alerta de Login -->
+                <div id="loginAlert" class="alert error" style="display:none;"></div>
 
-                <div class="form-group">
-                    <label for="descripcion">Descripción</label>
-                    <textarea id="descripcion" placeholder="Describe el producto..." rows="3" maxlength="500"></textarea>
-                </div>
-
-                <div class="form-row">
+                <form id="loginForm">
                     <div class="form-group">
-                        <label for="cantidad">Cantidad *</label>
-                        <input type="number" id="cantidad" placeholder="0" required min="0">
+                        <label for="loginUsuario">Usuario</label>
+                        <input type="text" id="loginUsuario" required placeholder="Ingresa tu usuario" value="max">
                     </div>
-
                     <div class="form-group">
-                        <label for="precio">Precio ($) *</label>
-                        <input type="number" id="precio" placeholder="0.00" required min="0.01" step="0.01">
+                        <label for="loginClave">Contraseña</label>
+                        <input type="password" id="loginClave" required placeholder="Ingresa tu contraseña" value="1234">
                     </div>
+                    <button type="submit" class="btn-primary">Iniciar Sesión</button>
+                </form>
+
+                <div class="card-footer">
+                    <i class="fas fa-info-circle icon-orange"></i>
+                    <h4>Credenciales de prueba:</h4>
+                    <p>Usuario: jorge | Clave: 1234</p>
+                    <p>Usuario: max | Clave: 1234</p>
                 </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary" id="btn-submit">
-                        <span id="btn-text">💾 Guardar Producto</span>
-                    </button>
-                    <button type="button" class="btn btn-secondary" id="btn-cancel" onclick="cancelarEdicion()">
-                        ❌ Cancelar
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Barra de Búsqueda -->
-        <div class="search-bar">
-            <input type="text" id="search-input" placeholder="🔍 Buscar productos por nombre...">
-            <button class="btn btn-info" onclick="buscarProductos()">Buscar</button>
-            <button class="btn btn-secondary" onclick="cargarProductos()">Mostrar Todos</button>
-        </div>
-
-        <!-- Lista de Productos -->
-        <div class="card">
-            <h2>📦 Lista de Productos</h2>
-            <div id="loading" class="loading" style="display: none;">Cargando productos...</div>
-            <div id="error-message" class="error-message" style="display: none;"></div>
-            <div id="productos-container"></div>
-        </div>
-    </div>
-
-    <!-- Modal de Confirmación -->
-    <div id="modal-confirmacion" class="modal">
-        <div class="modal-content">
-            <h3>⚠️ Confirmar Eliminación</h3>
-            <p>¿Estás seguro de que deseas eliminar este producto?</p>
-            <div class="modal-actions">
-                <button class="btn btn-danger" onclick="confirmarEliminar()">Sí, Eliminar</button>
-                <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
             </div>
         </div>
     </div>
 
+    <!-- 
+        ==================================================
+        VISTA PRINCIPAL (view: empleadosView)
+        ==================================================
+    -->
+    <div id="empleadosView" class="view">
+        
+        <!-- Barra de Navegación Superior -->
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <i class="fas fa-users-cog"></i>
+                Sistema de Empleados
+            </div>
+            <div class="navbar-actions">
+                <span id="userName" class="user-info">Usuario</span>
+                <button onclick="logout()" class="btn-secondary">Cerrar Sesión</button>
+            </div>
+        </nav>
+
+        <div class="main-content">
+            
+            <header class="header-main">
+                <h1>
+                    <i class="fas fa-clipboard-list icon-blue"></i>
+                    Gestión de Empleados
+                </h1>
+                <button onclick="showModal('create')" class="btn-primary-blue">
+                    <i class="fas fa-plus"></i> Nuevo Empleado
+                </button>
+            </header>
+            
+            <!-- Contenedor de Alerta para Operaciones CRUD -->
+            <div id="alertContainer" class="alert-container"></div>
+            
+            <!-- Búsqueda -->
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Buscar por nombre o apellido...">
+            </div>
+
+            <!-- Tabla de Empleados -->
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre Completo</th>
+                            <th>Email</th>
+                            <th>Teléfono</th>
+                            <th>Cargo</th>
+                            <th>Departamento</th>
+                            <th>Salario</th>
+                            <th>Fecha Contratación</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="empleadosTable">
+                        <!-- Los datos se cargarán aquí -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 
+        ==================================================
+        MODAL DE CREACIÓN/EDICIÓN (empleadoModal)
+        ==================================================
+    -->
+    <div id="empleadoModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle">Nuevo Empleado</h2>
+            
+            <form id="empleadoForm">
+                <!-- Campo oculto para el ID del empleado (solo en edición) -->
+                <input type="hidden" id="empleadoId"> 
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="nombre">Nombre</label>
+                        <input type="text" id="nombre" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="apellido">Apellido</label>
+                        <input type="text" id="apellido" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="telefono">Teléfono (Opcional)</label>
+                        <input type="text" id="telefono">
+                    </div>
+                    <div class="form-group">
+                        <label for="cargo">Cargo</label>
+                        <input type="text" id="cargo" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="departamentoId">Departamento</label>
+                        <select id="departamentoId" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="salario">Salario</label>
+                        <input type="number" id="salario" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="fechaContratacion">Fecha Contratación</label>
+                        <input type="date" id="fechaContratacion" required>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                    <button type="submit" id="btnGuardar" class="btn-primary-blue">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 
+        ==================================================
+        MODAL DE CONFIRMACIÓN (confirmModal)
+        ==================================================
+    -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content small-modal">
+            <span class="close-button" onclick="closeConfirmModal()">&times;</span>
+            <h2>Confirmar Eliminación</h2>
+            <p>¿Estás seguro de que deseas eliminar este empleado?</p>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeConfirmModal()">Cancelar</button>
+                <button type="button" id="btnConfirmarEliminar" class="btn-danger">Eliminar</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 
+        ==================================================
+        INCLUIMOS EL ARCHIVO JAVASCRIPT
+        ==================================================
+    -->
     <script src="app.js"></script>
+
 </body>
 </html>
